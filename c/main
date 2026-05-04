@@ -1,0 +1,173 @@
+/*******************************************************************
+ * File:        main
+ * Purpose:     OKLab library test command
+ * Author:      Gerph
+ ******************************************************************/
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "VersionNum"
+#include "oklab.h"
+
+static int failures = 0;
+
+static float absf(float x)
+{
+    return (x < 0.0f) ? -x : x;
+}
+
+static void check_float(const char *name, float actual, float expected, float tolerance)
+{
+    float delta;
+
+    delta = absf(actual - expected);
+    if (delta > tolerance) {
+        printf("FAIL: %s: got %.9g expected %.9g delta %.9g\n",
+               name, actual, expected, delta);
+        failures++;
+    }
+}
+
+static void check_rgb(const char *name, oklab_rgb actual,
+                      oklab_rgb expected, float tolerance)
+{
+    char field[80];
+
+    sprintf(field, "%s.r", name);
+    check_float(field, actual.r, expected.r, tolerance);
+    sprintf(field, "%s.g", name);
+    check_float(field, actual.g, expected.g, tolerance);
+    sprintf(field, "%s.b", name);
+    check_float(field, actual.b, expected.b, tolerance);
+}
+
+static void check_lab(const char *name, oklab_lab actual,
+                      oklab_lab expected, float tolerance)
+{
+    char field[80];
+
+    sprintf(field, "%s.L", name);
+    check_float(field, actual.L, expected.L, tolerance);
+    sprintf(field, "%s.a", name);
+    check_float(field, actual.a, expected.a, tolerance);
+    sprintf(field, "%s.b", name);
+    check_float(field, actual.b, expected.b, tolerance);
+}
+
+static void test_known_conversions(void)
+{
+    oklab_rgb rgb;
+    oklab_lab lab;
+    oklab_lab expected_lab;
+    oklab_rgb expected_rgb;
+
+    rgb.r = 1.0f; rgb.g = 1.0f; rgb.b = 1.0f;
+    lab = oklab_linear_srgb_to_oklab(rgb);
+    expected_lab.L = 1.0f;
+    expected_lab.a = 0.0f;
+    expected_lab.b = 0.0f;
+    check_lab("linear white to OKLab", lab, expected_lab, 0.00002f);
+
+    rgb.r = 1.0f; rgb.g = 0.0f; rgb.b = 0.0f;
+    lab = oklab_linear_srgb_to_oklab(rgb);
+    expected_lab.L = 0.627955f;
+    expected_lab.a = 0.224863f;
+    expected_lab.b = 0.125846f;
+    check_lab("linear red to OKLab", lab, expected_lab, 0.00002f);
+
+    expected_rgb.r = 1.0f; expected_rgb.g = 0.0f; expected_rgb.b = 0.0f;
+    check_rgb("OKLab red to linear sRGB",
+              oklab_oklab_to_linear_srgb(expected_lab), expected_rgb, 0.00003f);
+
+    rgb.r = 0.0f; rgb.g = 1.0f; rgb.b = 0.0f;
+    lab = oklab_linear_srgb_to_oklab(rgb);
+    expected_lab.L = 0.866440f;
+    expected_lab.a = -0.233887f;
+    expected_lab.b = 0.179498f;
+    check_lab("linear green to OKLab", lab, expected_lab, 0.00002f);
+
+    rgb.r = 0.0f; rgb.g = 0.0f; rgb.b = 1.0f;
+    lab = oklab_linear_srgb_to_oklab(rgb);
+    expected_lab.L = 0.452014f;
+    expected_lab.a = -0.032457f;
+    expected_lab.b = -0.311528f;
+    check_lab("linear blue to OKLab", lab, expected_lab, 0.00002f);
+}
+
+static void test_round_trips(void)
+{
+    static const float samples[][3] = {
+        { 0.0f, 0.0f, 0.0f },
+        { 1.0f, 1.0f, 1.0f },
+        { 0.2f, 0.4f, 0.8f },
+        { 0.9f, 0.3f, 0.1f },
+        { 0.05f, 0.7f, 0.25f }
+    };
+    int i;
+
+    for (i = 0; i < (int)(sizeof(samples) / sizeof(samples[0])); i++) {
+        oklab_rgb rgb;
+        oklab_rgb round_trip;
+
+        rgb.r = samples[i][0];
+        rgb.g = samples[i][1];
+        rgb.b = samples[i][2];
+        round_trip = oklab_oklab_to_linear_srgb(oklab_linear_srgb_to_oklab(rgb));
+        check_rgb("linear sRGB round trip", round_trip, rgb, 0.00004f);
+    }
+}
+
+static void test_transfer_functions(void)
+{
+    float encoded;
+    float decoded;
+
+    check_float("sRGB transfer threshold",
+                oklab_srgb_transfer_function(0.0031308f), 0.040449936f, 0.000001f);
+    check_float("sRGB inverse threshold",
+                oklab_srgb_transfer_function_inv(0.04045f), 0.0031308f, 0.000001f);
+
+    encoded = oklab_srgb_transfer_function(0.18f);
+    decoded = oklab_srgb_transfer_function_inv(encoded);
+    check_float("sRGB transfer round trip", decoded, 0.18f, 0.000003f);
+}
+
+static void test_okhsl_okhsv(void)
+{
+    oklab_rgb rgb;
+    oklab_rgb round_trip;
+    oklab_hsl hsl;
+    oklab_hsv hsv;
+
+    rgb.r = 0.25f; rgb.g = 0.5f; rgb.b = 0.75f;
+
+    hsl = oklab_srgb_to_okhsl(rgb);
+    round_trip = oklab_okhsl_to_srgb(hsl);
+    check_rgb("OKHSL sRGB round trip", round_trip, rgb, 0.00008f);
+
+    hsv = oklab_srgb_to_okhsv(rgb);
+    round_trip = oklab_okhsv_to_srgb(hsv);
+    check_rgb("OKHSV sRGB round trip", round_trip, rgb, 0.00008f);
+}
+
+int main(int argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+
+    printf("OKLabTest " Module_FullVersionAndDate "\n");
+    test_known_conversions();
+    test_round_trips();
+    test_transfer_functions();
+    test_okhsl_okhsv();
+
+    if (failures != 0) {
+        printf("%d failure%s\n", failures, failures == 1 ? "" : "s");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("All OKLab tests passed\n");
+    exit(EXIT_SUCCESS);
+}

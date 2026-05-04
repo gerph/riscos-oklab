@@ -1,0 +1,713 @@
+/*******************************************************************
+ * File:        oklab
+ * Purpose:     C89 port of Bjorn Ottosson's ok_color.h
+ * Author:      Gerph
+ * Licence:     MIT; see LICENSE
+ ******************************************************************/
+
+#include <float.h>
+#include <math.h>
+
+#include "oklab.h"
+
+#define OKLAB_PI 3.1415926535897932384626433832795028841971693993751f
+#define OKLAB_EPSILON 0.00001f
+
+typedef struct oklab_cs {
+    float C_0;
+    float C_mid;
+    float C_max;
+} oklab_cs;
+
+static float oklab_fabsf(float x)
+{
+    return (x < 0.0f) ? -x : x;
+}
+
+static float oklab_fminf(float a, float b)
+{
+    return (a < b) ? a : b;
+}
+
+static float oklab_fmaxf(float a, float b)
+{
+    return (a > b) ? a : b;
+}
+
+static float oklab_powf(float x, float y)
+{
+    return (float)pow((double)x, (double)y);
+}
+
+static float oklab_sqrtf(float x)
+{
+    return (float)sqrt((double)x);
+}
+
+static float oklab_cbrtf(float x)
+{
+    if (x < 0.0f)
+        return -oklab_powf(-x, 1.0f / 3.0f);
+    return oklab_powf(x, 1.0f / 3.0f);
+}
+
+static float oklab_cosf(float x)
+{
+    return (float)cos((double)x);
+}
+
+static float oklab_sinf(float x)
+{
+    return (float)sin((double)x);
+}
+
+static float oklab_atan2f(float y, float x)
+{
+    return (float)atan2((double)y, (double)x);
+}
+
+float oklab_clamp(float x, float min, float max)
+{
+    if (x < min)
+        return min;
+    if (x > max)
+        return max;
+    return x;
+}
+
+float oklab_sgn(float x)
+{
+    return (float)(0.0f < x) - (float)(x < 0.0f);
+}
+
+float oklab_srgb_transfer_function(float a)
+{
+    if (a <= 0.0031308f)
+        return 12.92f * a;
+    return 1.055f * oklab_powf(a, 0.4166666666666667f) - 0.055f;
+}
+
+float oklab_srgb_transfer_function_inv(float a)
+{
+    if (a > 0.04045f)
+        return oklab_powf((a + 0.055f) / 1.055f, 2.4f);
+    return a / 12.92f;
+}
+
+oklab_lab oklab_linear_srgb_to_oklab(oklab_rgb c)
+{
+    float l;
+    float m;
+    float s;
+    float l_;
+    float m_;
+    float s_;
+    oklab_lab out;
+
+    l = 0.4122214708f * c.r + 0.5363325363f * c.g + 0.0514459929f * c.b;
+    m = 0.2119034982f * c.r + 0.6806995451f * c.g + 0.1073969566f * c.b;
+    s = 0.0883024619f * c.r + 0.2817188376f * c.g + 0.6299787005f * c.b;
+
+    l_ = oklab_cbrtf(l);
+    m_ = oklab_cbrtf(m);
+    s_ = oklab_cbrtf(s);
+
+    out.L = 0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_;
+    out.a = 1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_;
+    out.b = 0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_;
+    return out;
+}
+
+oklab_rgb oklab_oklab_to_linear_srgb(oklab_lab c)
+{
+    float l_;
+    float m_;
+    float s_;
+    float l;
+    float m;
+    float s;
+    oklab_rgb out;
+
+    l_ = c.L + 0.3963377774f * c.a + 0.2158037573f * c.b;
+    m_ = c.L - 0.1055613458f * c.a - 0.0638541728f * c.b;
+    s_ = c.L - 0.0894841775f * c.a - 1.2914855480f * c.b;
+
+    l = l_ * l_ * l_;
+    m = m_ * m_ * m_;
+    s = s_ * s_ * s_;
+
+    out.r = +4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s;
+    out.g = -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s;
+    out.b = -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s;
+    return out;
+}
+
+float oklab_compute_max_saturation(float a, float b)
+{
+    float k0;
+    float k1;
+    float k2;
+    float k3;
+    float k4;
+    float wl;
+    float wm;
+    float ws;
+    float S;
+    float k_l;
+    float k_m;
+    float k_s;
+
+    if (-1.88170328f * a - 0.80936493f * b > 1.0f) {
+        k0 = +1.19086277f; k1 = +1.76576728f; k2 = +0.59662641f;
+        k3 = +0.75515197f; k4 = +0.56771245f;
+        wl = +4.0767416621f; wm = -3.3077115913f; ws = +0.2309699292f;
+    } else if (1.81444104f * a - 1.19445276f * b > 1.0f) {
+        k0 = +0.73956515f; k1 = -0.45954404f; k2 = +0.08285427f;
+        k3 = +0.12541070f; k4 = +0.14503204f;
+        wl = -1.2684380046f; wm = +2.6097574011f; ws = -0.3413193965f;
+    } else {
+        k0 = +1.35733652f; k1 = -0.00915799f; k2 = -1.15130210f;
+        k3 = -0.50559606f; k4 = +0.00692167f;
+        wl = -0.0041960863f; wm = -0.7034186147f; ws = +1.7076147010f;
+    }
+
+    S = k0 + k1 * a + k2 * b + k3 * a * a + k4 * a * b;
+    k_l = +0.3963377774f * a + 0.2158037573f * b;
+    k_m = -0.1055613458f * a - 0.0638541728f * b;
+    k_s = -0.0894841775f * a - 1.2914855480f * b;
+
+    {
+        float l_ = 1.0f + S * k_l;
+        float m_ = 1.0f + S * k_m;
+        float s_ = 1.0f + S * k_s;
+        float l = l_ * l_ * l_;
+        float m = m_ * m_ * m_;
+        float s = s_ * s_ * s_;
+        float l_dS = 3.0f * k_l * l_ * l_;
+        float m_dS = 3.0f * k_m * m_ * m_;
+        float s_dS = 3.0f * k_s * s_ * s_;
+        float l_dS2 = 6.0f * k_l * k_l * l_;
+        float m_dS2 = 6.0f * k_m * k_m * m_;
+        float s_dS2 = 6.0f * k_s * k_s * s_;
+        float f = wl * l + wm * m + ws * s;
+        float f1 = wl * l_dS + wm * m_dS + ws * s_dS;
+        float f2 = wl * l_dS2 + wm * m_dS2 + ws * s_dS2;
+
+        S = S - f * f1 / (f1 * f1 - 0.5f * f * f2);
+    }
+
+    return S;
+}
+
+oklab_lc oklab_find_cusp(float a, float b)
+{
+    float S_cusp;
+    float L_cusp;
+    oklab_lab lab;
+    oklab_rgb rgb_at_max;
+    oklab_lc out;
+
+    S_cusp = oklab_compute_max_saturation(a, b);
+    lab.L = 1.0f;
+    lab.a = S_cusp * a;
+    lab.b = S_cusp * b;
+    rgb_at_max = oklab_oklab_to_linear_srgb(lab);
+    L_cusp = oklab_cbrtf(1.0f / oklab_fmaxf(oklab_fmaxf(rgb_at_max.r, rgb_at_max.g),
+                                             rgb_at_max.b));
+    out.L = L_cusp;
+    out.C = L_cusp * S_cusp;
+    return out;
+}
+
+float oklab_find_gamut_intersection(oklab_lc cusp,
+                                    float a, float b,
+                                    float L1, float C1, float L0)
+{
+    float t;
+
+    if (((L1 - L0) * cusp.C - (cusp.L - L0) * C1) <= 0.0f) {
+        t = cusp.C * L0 / (C1 * cusp.L + cusp.C * (L0 - L1));
+    } else {
+        t = cusp.C * (L0 - 1.0f) / (C1 * (cusp.L - 1.0f) + cusp.C * (L0 - L1));
+
+        {
+            float dL = L1 - L0;
+            float dC = C1;
+            float k_l = +0.3963377774f * a + 0.2158037573f * b;
+            float k_m = -0.1055613458f * a - 0.0638541728f * b;
+            float k_s = -0.0894841775f * a - 1.2914855480f * b;
+            float l_dt = dL + dC * k_l;
+            float m_dt = dL + dC * k_m;
+            float s_dt = dL + dC * k_s;
+            float L = L0 * (1.0f - t) + t * L1;
+            float C = t * C1;
+            float l_ = L + C * k_l;
+            float m_ = L + C * k_m;
+            float s_ = L + C * k_s;
+            float l = l_ * l_ * l_;
+            float m = m_ * m_ * m_;
+            float s = s_ * s_ * s_;
+            float ldt = 3.0f * l_dt * l_ * l_;
+            float mdt = 3.0f * m_dt * m_ * m_;
+            float sdt = 3.0f * s_dt * s_ * s_;
+            float ldt2 = 6.0f * l_dt * l_dt * l_;
+            float mdt2 = 6.0f * m_dt * m_dt * m_;
+            float sdt2 = 6.0f * s_dt * s_dt * s_;
+            float r = 4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s - 1.0f;
+            float r1 = 4.0767416621f * ldt - 3.3077115913f * mdt + 0.2309699292f * sdt;
+            float r2 = 4.0767416621f * ldt2 - 3.3077115913f * mdt2 + 0.2309699292f * sdt2;
+            float u_r = r1 / (r1 * r1 - 0.5f * r * r2);
+            float t_r = -r * u_r;
+            float g = -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s - 1.0f;
+            float g1 = -1.2684380046f * ldt + 2.6097574011f * mdt - 0.3413193965f * sdt;
+            float g2 = -1.2684380046f * ldt2 + 2.6097574011f * mdt2 - 0.3413193965f * sdt2;
+            float u_g = g1 / (g1 * g1 - 0.5f * g * g2);
+            float t_g = -g * u_g;
+            float blue = -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s - 1.0f;
+            float blue1 = -0.0041960863f * ldt - 0.7034186147f * mdt + 1.7076147010f * sdt;
+            float blue2 = -0.0041960863f * ldt2 - 0.7034186147f * mdt2 + 1.7076147010f * sdt2;
+            float u_b = blue1 / (blue1 * blue1 - 0.5f * blue * blue2);
+            float t_b = -blue * u_b;
+
+            t_r = (u_r >= 0.0f) ? t_r : FLT_MAX;
+            t_g = (u_g >= 0.0f) ? t_g : FLT_MAX;
+            t_b = (u_b >= 0.0f) ? t_b : FLT_MAX;
+            t += oklab_fminf(t_r, oklab_fminf(t_g, t_b));
+        }
+    }
+
+    return t;
+}
+
+float oklab_find_gamut_intersection_uncached(float a, float b,
+                                             float L1, float C1, float L0)
+{
+    oklab_lc cusp;
+
+    cusp = oklab_find_cusp(a, b);
+    return oklab_find_gamut_intersection(cusp, a, b, L1, C1, L0);
+}
+
+static int oklab_rgb_in_gamut(oklab_rgb rgb)
+{
+    return rgb.r < 1.0f && rgb.g < 1.0f && rgb.b < 1.0f &&
+           rgb.r > 0.0f && rgb.g > 0.0f && rgb.b > 0.0f;
+}
+
+static oklab_rgb oklab_clip_to_L0(oklab_rgb rgb, float L0)
+{
+    oklab_lab lab;
+    oklab_rgb out;
+    float L;
+    float C;
+    float a_;
+    float b_;
+    float t;
+    float L_clipped;
+    float C_clipped;
+
+    if (oklab_rgb_in_gamut(rgb))
+        return rgb;
+
+    lab = oklab_linear_srgb_to_oklab(rgb);
+    L = lab.L;
+    C = oklab_fmaxf(OKLAB_EPSILON, oklab_sqrtf(lab.a * lab.a + lab.b * lab.b));
+    a_ = lab.a / C;
+    b_ = lab.b / C;
+    t = oklab_find_gamut_intersection_uncached(a_, b_, L, C, L0);
+    L_clipped = L0 * (1.0f - t) + t * L;
+    C_clipped = t * C;
+
+    lab.L = L_clipped;
+    lab.a = C_clipped * a_;
+    lab.b = C_clipped * b_;
+    out = oklab_oklab_to_linear_srgb(lab);
+    return out;
+}
+
+oklab_rgb oklab_gamut_clip_preserve_chroma(oklab_rgb rgb)
+{
+    oklab_lab lab;
+
+    if (oklab_rgb_in_gamut(rgb))
+        return rgb;
+    lab = oklab_linear_srgb_to_oklab(rgb);
+    return oklab_clip_to_L0(rgb, oklab_clamp(lab.L, 0.0f, 1.0f));
+}
+
+oklab_rgb oklab_gamut_clip_project_to_0_5(oklab_rgb rgb)
+{
+    return oklab_clip_to_L0(rgb, 0.5f);
+}
+
+oklab_rgb oklab_gamut_clip_project_to_L_cusp(oklab_rgb rgb)
+{
+    oklab_lab lab;
+    oklab_lc cusp;
+    float C;
+
+    if (oklab_rgb_in_gamut(rgb))
+        return rgb;
+    lab = oklab_linear_srgb_to_oklab(rgb);
+    C = oklab_fmaxf(OKLAB_EPSILON, oklab_sqrtf(lab.a * lab.a + lab.b * lab.b));
+    cusp = oklab_find_cusp(lab.a / C, lab.b / C);
+    return oklab_clip_to_L0(rgb, cusp.L);
+}
+
+oklab_rgb oklab_gamut_clip_adaptive_L0_0_5(oklab_rgb rgb, float alpha)
+{
+    oklab_lab lab;
+    float L;
+    float C;
+    float Ld;
+    float e1;
+    float L0;
+
+    if (oklab_rgb_in_gamut(rgb))
+        return rgb;
+    lab = oklab_linear_srgb_to_oklab(rgb);
+    L = lab.L;
+    C = oklab_fmaxf(OKLAB_EPSILON, oklab_sqrtf(lab.a * lab.a + lab.b * lab.b));
+    Ld = L - 0.5f;
+    e1 = 0.5f + oklab_fabsf(Ld) + alpha * C;
+    L0 = 0.5f * (1.0f + oklab_sgn(Ld) *
+         (e1 - oklab_sqrtf(e1 * e1 - 2.0f * oklab_fabsf(Ld))));
+    return oklab_clip_to_L0(rgb, L0);
+}
+
+oklab_rgb oklab_gamut_clip_adaptive_L0_L_cusp(oklab_rgb rgb, float alpha)
+{
+    oklab_lab lab;
+    oklab_lc cusp;
+    float L;
+    float C;
+    float Ld;
+    float k;
+    float e1;
+    float L0;
+
+    if (oklab_rgb_in_gamut(rgb))
+        return rgb;
+    lab = oklab_linear_srgb_to_oklab(rgb);
+    L = lab.L;
+    C = oklab_fmaxf(OKLAB_EPSILON, oklab_sqrtf(lab.a * lab.a + lab.b * lab.b));
+    cusp = oklab_find_cusp(lab.a / C, lab.b / C);
+    Ld = L - cusp.L;
+    k = 2.0f * ((Ld > 0.0f) ? 1.0f - cusp.L : cusp.L);
+    e1 = 0.5f * k + oklab_fabsf(Ld) + alpha * C / k;
+    L0 = cusp.L + 0.5f * (oklab_sgn(Ld) *
+         (e1 - oklab_sqrtf(e1 * e1 - 2.0f * k * oklab_fabsf(Ld))));
+    return oklab_clip_to_L0(rgb, L0);
+}
+
+float oklab_toe(float x)
+{
+    float k_1 = 0.206f;
+    float k_2 = 0.03f;
+    float k_3 = (1.0f + k_1) / (1.0f + k_2);
+
+    return 0.5f * (k_3 * x - k_1 +
+           oklab_sqrtf((k_3 * x - k_1) * (k_3 * x - k_1) +
+                       4.0f * k_2 * k_3 * x));
+}
+
+float oklab_toe_inv(float x)
+{
+    float k_1 = 0.206f;
+    float k_2 = 0.03f;
+    float k_3 = (1.0f + k_1) / (1.0f + k_2);
+
+    return (x * x + k_1 * x) / (k_3 * (x + k_2));
+}
+
+oklab_st oklab_to_ST(oklab_lc cusp)
+{
+    oklab_st out;
+
+    out.S = cusp.C / cusp.L;
+    out.T = cusp.C / (1.0f - cusp.L);
+    return out;
+}
+
+oklab_st oklab_get_ST_mid(float a_, float b_)
+{
+    oklab_st out;
+
+    out.S = 0.11516993f + 1.0f /
+        (+7.44778970f + 4.15901240f * b_
+        + a_ * (-2.19557347f + 1.75198401f * b_
+        + a_ * (-2.13704948f - 10.02301043f * b_
+        + a_ * (-4.24894561f + 5.38770819f * b_ + 4.69891013f * a_))));
+
+    out.T = 0.11239642f + 1.0f /
+        (+1.61320320f - 0.68124379f * b_
+        + a_ * (+0.40370612f + 0.90148123f * b_
+        + a_ * (-0.27087943f + 0.61223990f * b_
+        + a_ * (+0.00299215f - 0.45399568f * b_ - 0.14661872f * a_))));
+
+    return out;
+}
+
+static oklab_cs oklab_get_Cs(float L, float a_, float b_)
+{
+    oklab_lc cusp;
+    oklab_st ST_max;
+    oklab_st ST_mid;
+    oklab_cs out;
+    float C_max;
+    float k;
+    float C_a;
+    float C_b;
+
+    cusp = oklab_find_cusp(a_, b_);
+    C_max = oklab_find_gamut_intersection(cusp, a_, b_, L, 1.0f, L);
+    ST_max = oklab_to_ST(cusp);
+    k = C_max / oklab_fminf(L * ST_max.S, (1.0f - L) * ST_max.T);
+
+    ST_mid = oklab_get_ST_mid(a_, b_);
+    C_a = L * ST_mid.S;
+    C_b = (1.0f - L) * ST_mid.T;
+    out.C_mid = 0.9f * k * oklab_sqrtf(oklab_sqrtf(1.0f /
+                (1.0f / (C_a * C_a * C_a * C_a) +
+                 1.0f / (C_b * C_b * C_b * C_b))));
+
+    C_a = L * 0.4f;
+    C_b = (1.0f - L) * 0.8f;
+    out.C_0 = oklab_sqrtf(1.0f / (1.0f / (C_a * C_a) + 1.0f / (C_b * C_b)));
+    out.C_max = C_max;
+    return out;
+}
+
+oklab_rgb oklab_okhsl_to_srgb(oklab_hsl hsl)
+{
+    float h = hsl.h;
+    float s = hsl.s;
+    float l = hsl.l;
+    float a_;
+    float b_;
+    float L;
+    float C;
+    float t;
+    float k_0;
+    float k_1;
+    float k_2;
+    oklab_cs cs;
+    oklab_lab lab;
+    oklab_rgb rgb;
+    oklab_rgb out;
+
+    if (l >= 1.0f) {
+        out.r = 1.0f; out.g = 1.0f; out.b = 1.0f;
+        return out;
+    } else if (l <= 0.0f) {
+        out.r = 0.0f; out.g = 0.0f; out.b = 0.0f;
+        return out;
+    }
+
+    a_ = oklab_cosf(2.0f * OKLAB_PI * h);
+    b_ = oklab_sinf(2.0f * OKLAB_PI * h);
+    L = oklab_toe_inv(l);
+    cs = oklab_get_Cs(L, a_, b_);
+
+    if (s < 0.8f) {
+        t = 1.25f * s;
+        k_1 = 0.8f * cs.C_0;
+        k_2 = 1.0f - k_1 / cs.C_mid;
+        C = t * k_1 / (1.0f - k_2 * t);
+    } else {
+        t = (s - 0.8f) / 0.2f;
+        k_0 = cs.C_mid;
+        k_1 = 0.2f * cs.C_mid * cs.C_mid * 1.25f * 1.25f / cs.C_0;
+        k_2 = 1.0f - k_1 / (cs.C_max - cs.C_mid);
+        C = k_0 + t * k_1 / (1.0f - k_2 * t);
+    }
+
+    lab.L = L;
+    lab.a = C * a_;
+    lab.b = C * b_;
+    rgb = oklab_oklab_to_linear_srgb(lab);
+    out.r = oklab_srgb_transfer_function(rgb.r);
+    out.g = oklab_srgb_transfer_function(rgb.g);
+    out.b = oklab_srgb_transfer_function(rgb.b);
+    return out;
+}
+
+oklab_hsl oklab_srgb_to_okhsl(oklab_rgb rgb)
+{
+    oklab_rgb linear;
+    oklab_lab lab;
+    oklab_cs cs;
+    oklab_hsl out;
+    float C;
+    float a_;
+    float b_;
+    float t;
+    float k_0;
+    float k_1;
+    float k_2;
+
+    linear.r = oklab_srgb_transfer_function_inv(rgb.r);
+    linear.g = oklab_srgb_transfer_function_inv(rgb.g);
+    linear.b = oklab_srgb_transfer_function_inv(rgb.b);
+    lab = oklab_linear_srgb_to_oklab(linear);
+    C = oklab_sqrtf(lab.a * lab.a + lab.b * lab.b);
+
+    out.l = oklab_toe(lab.L);
+    if (C <= OKLAB_EPSILON) {
+        out.h = 0.0f;
+        out.s = 0.0f;
+        return out;
+    }
+
+    a_ = lab.a / C;
+    b_ = lab.b / C;
+    out.h = 0.5f + 0.5f * oklab_atan2f(-lab.b, -lab.a) / OKLAB_PI;
+    cs = oklab_get_Cs(lab.L, a_, b_);
+
+    if (C < cs.C_mid) {
+        k_1 = 0.8f * cs.C_0;
+        k_2 = 1.0f - k_1 / cs.C_mid;
+        t = C / (k_1 + k_2 * C);
+        out.s = t * 0.8f;
+    } else {
+        k_0 = cs.C_mid;
+        k_1 = 0.2f * cs.C_mid * cs.C_mid * 1.25f * 1.25f / cs.C_0;
+        k_2 = 1.0f - k_1 / (cs.C_max - cs.C_mid);
+        t = (C - k_0) / (k_1 + k_2 * (C - k_0));
+        out.s = 0.8f + 0.2f * t;
+    }
+
+    return out;
+}
+
+oklab_rgb oklab_okhsv_to_srgb(oklab_hsv hsv)
+{
+    float h = hsv.h;
+    float s = hsv.s;
+    float v = hsv.v;
+    float a_;
+    float b_;
+    float S_max;
+    float T_max;
+    float S_0;
+    float k;
+    float L_v;
+    float C_v;
+    float L;
+    float C;
+    float L_vt;
+    float C_vt;
+    float scale_L;
+    oklab_lc cusp;
+    oklab_st ST_max;
+    oklab_lab lab;
+    oklab_rgb rgb_scale;
+    oklab_rgb rgb;
+    oklab_rgb out;
+
+    if (v <= 0.0f) {
+        out.r = 0.0f; out.g = 0.0f; out.b = 0.0f;
+        return out;
+    }
+
+    a_ = oklab_cosf(2.0f * OKLAB_PI * h);
+    b_ = oklab_sinf(2.0f * OKLAB_PI * h);
+    cusp = oklab_find_cusp(a_, b_);
+    ST_max = oklab_to_ST(cusp);
+    S_max = ST_max.S;
+    T_max = ST_max.T;
+    S_0 = 0.5f;
+    k = 1.0f - S_0 / S_max;
+    L_v = 1.0f - s * S_0 / (S_0 + T_max - T_max * k * s);
+    C_v = s * T_max * S_0 / (S_0 + T_max - T_max * k * s);
+    L = v * L_v;
+    C = v * C_v;
+    L_vt = oklab_toe_inv(L_v);
+    C_vt = C_v * L_vt / L_v;
+    L = oklab_toe_inv(L);
+    C = C * L / (v * L_v);
+
+    lab.L = L_vt;
+    lab.a = a_ * C_vt;
+    lab.b = b_ * C_vt;
+    rgb_scale = oklab_oklab_to_linear_srgb(lab);
+    scale_L = oklab_cbrtf(1.0f / oklab_fmaxf(oklab_fmaxf(rgb_scale.r, rgb_scale.g),
+                                             oklab_fmaxf(rgb_scale.b, 0.0f)));
+
+    lab.L = L * scale_L;
+    lab.a = C * scale_L * a_;
+    lab.b = C * scale_L * b_;
+    rgb = oklab_oklab_to_linear_srgb(lab);
+    out.r = oklab_srgb_transfer_function(rgb.r);
+    out.g = oklab_srgb_transfer_function(rgb.g);
+    out.b = oklab_srgb_transfer_function(rgb.b);
+    return out;
+}
+
+oklab_hsv oklab_srgb_to_okhsv(oklab_rgb rgb)
+{
+    oklab_rgb linear;
+    oklab_rgb rgb_scale;
+    oklab_lab lab;
+    oklab_lc cusp;
+    oklab_st ST_max;
+    oklab_hsv out;
+    float C;
+    float L;
+    float a_;
+    float b_;
+    float S_max;
+    float T_max;
+    float S_0;
+    float k;
+    float t;
+    float L_v;
+    float C_v;
+    float L_vt;
+    float C_vt;
+    float scale_L;
+
+    linear.r = oklab_srgb_transfer_function_inv(rgb.r);
+    linear.g = oklab_srgb_transfer_function_inv(rgb.g);
+    linear.b = oklab_srgb_transfer_function_inv(rgb.b);
+    lab = oklab_linear_srgb_to_oklab(linear);
+    C = oklab_sqrtf(lab.a * lab.a + lab.b * lab.b);
+    L = lab.L;
+
+    if (C <= OKLAB_EPSILON) {
+        out.h = 0.0f;
+        out.s = 0.0f;
+        out.v = oklab_toe(L);
+        return out;
+    }
+
+    a_ = lab.a / C;
+    b_ = lab.b / C;
+    out.h = 0.5f + 0.5f * oklab_atan2f(-lab.b, -lab.a) / OKLAB_PI;
+    cusp = oklab_find_cusp(a_, b_);
+    ST_max = oklab_to_ST(cusp);
+    S_max = ST_max.S;
+    T_max = ST_max.T;
+    S_0 = 0.5f;
+    k = 1.0f - S_0 / S_max;
+    t = T_max / (C + L * T_max);
+    L_v = t * L;
+    C_v = t * C;
+    L_vt = oklab_toe_inv(L_v);
+    C_vt = C_v * L_vt / L_v;
+
+    lab.L = L_vt;
+    lab.a = a_ * C_vt;
+    lab.b = b_ * C_vt;
+    rgb_scale = oklab_oklab_to_linear_srgb(lab);
+    scale_L = oklab_cbrtf(1.0f / oklab_fmaxf(oklab_fmaxf(rgb_scale.r, rgb_scale.g),
+                                             oklab_fmaxf(rgb_scale.b, 0.0f)));
+
+    L = L / scale_L;
+    C = C / scale_L;
+    C = C * oklab_toe(L) / L;
+    L = oklab_toe(L);
+    out.v = L / L_v;
+    out.s = (S_0 + T_max) * C_v / ((T_max * S_0) + T_max * k * C_v);
+    return out;
+}

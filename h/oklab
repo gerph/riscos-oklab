@@ -1,0 +1,77 @@
+/*******************************************************************
+ * File:        oklab
+ * Purpose:     Public interface for the OKLab colour library
+ * Author:      Gerph
+ * Licence:     MIT; see LICENSE
+ ******************************************************************/
+
+#ifndef LIB_OKLAB__H
+#define LIB_OKLAB__H
+
+typedef struct oklab_lab {
+    float L;
+    float a;
+    float b;
+} oklab_lab;
+
+typedef struct oklab_rgb {
+    float r;
+    float g;
+    float b;
+} oklab_rgb;
+
+typedef struct oklab_hsv {
+    float h;
+    float s;
+    float v;
+} oklab_hsv;
+
+typedef struct oklab_hsl {
+    float h;
+    float s;
+    float l;
+} oklab_hsl;
+
+typedef struct oklab_lc {
+    float L;
+    float C;
+} oklab_lc;
+
+typedef struct oklab_st {
+    float S;
+    float T;
+} oklab_st;
+
+float oklab_clamp(float x, float min, float max);
+float oklab_sgn(float x);
+float oklab_srgb_transfer_function(float a);
+float oklab_srgb_transfer_function_inv(float a);
+
+oklab_lab oklab_linear_srgb_to_oklab(oklab_rgb c);
+oklab_rgb oklab_oklab_to_linear_srgb(oklab_lab c);
+
+float oklab_compute_max_saturation(float a, float b);
+oklab_lc oklab_find_cusp(float a, float b);
+float oklab_find_gamut_intersection(oklab_lc cusp,
+                                    float a, float b,
+                                    float L1, float C1, float L0);
+float oklab_find_gamut_intersection_uncached(float a, float b,
+                                             float L1, float C1, float L0);
+
+oklab_rgb oklab_gamut_clip_preserve_chroma(oklab_rgb rgb);
+oklab_rgb oklab_gamut_clip_project_to_0_5(oklab_rgb rgb);
+oklab_rgb oklab_gamut_clip_project_to_L_cusp(oklab_rgb rgb);
+oklab_rgb oklab_gamut_clip_adaptive_L0_0_5(oklab_rgb rgb, float alpha);
+oklab_rgb oklab_gamut_clip_adaptive_L0_L_cusp(oklab_rgb rgb, float alpha);
+
+float oklab_toe(float x);
+float oklab_toe_inv(float x);
+oklab_st oklab_to_ST(oklab_lc cusp);
+oklab_st oklab_get_ST_mid(float a_, float b_);
+
+oklab_rgb oklab_okhsl_to_srgb(oklab_hsl hsl);
+oklab_hsl oklab_srgb_to_okhsl(oklab_rgb rgb);
+oklab_rgb oklab_okhsv_to_srgb(oklab_hsv hsv);
+oklab_hsv oklab_srgb_to_okhsv(oklab_rgb rgb);
+
+#endif /* LIB_OKLAB__H */
