@@ -1,0 +1,59 @@
+%YAML 1.0
+---
+
+# RISC OS build file to execute on https://build.riscos.online/
+
+# Source is optional (NYI), and should be a URL to source the content from
+#source: <url>
+
+# Defines a list of jobs which will be performed.
+# Only 1 job will currently be executed.
+jobs:
+  build:
+    # Env defines system variables which will be used within the environment.
+    # Multiple variables may be assigned.
+    env:
+      "Sys$Environment": ROBuild
+      "BUILD32": 1
+
+      # Faster building using the host toolchain
+      "Alias$AMU": "HostAMU %*0"
+
+    # Directory to change to before running script
+    #dir: <working directory>
+
+    # Commands which should be executed to perform the build.
+    # The build will terminate if any command returns a non-0 return code or an error.
+    script:
+
+      # Export our headers and libraries
+      - echo
+      - echo *** Export the headers or libs ***
+      - amu -f Makefile export
+
+      # No tests for libraries
+
+      # Construct the artifacts to release
+      - echo *** Copy artifacts ***
+      - cdir Artifacts
+      - IfThere <Exports$Dir>.C.h.OKLab Then cdir Artifacts.Lib
+      - IfThere <Exports$Dir>.C.h.OKLab Then cdir Artifacts.Lib.h
+      - IfThere <Exports$Dir>.C.h.OKLab Then copy <Exports$Dir>.C.h.OKLab Artifacts.Lib.h.OKLab ~CV
+      - IfThere <Exports$Dir>.Lib.OKLab Then cdir Artifacts.Lib
+      - IfThere <Exports$Dir>.Lib.OKLab Then copy <Exports$Dir>.Lib.OKLab Artifacts.Lib.OKLab ~CVR
+      # Remove the directory if it was empty
+      - X remove <Exports$Dir>.Lib.OKLab
+      - X remove <Exports$Dir>.Lib
+      - IfThere LICENSE Then copy LICENSE Artifacts.* ~CV
+
+      # Done!
+      - echo
+      - echo *** SUCCESS ***
+
+    # Outputs from the build are defined in artifacts
+    # These are a list of artifacts to report directories or files.
+    # Only a single item is currently supported.
+    artifacts:
+      # Each element of the artifacts should have a path key, which gives the file or
+      # directory to return.
+      - path: Artifacts
